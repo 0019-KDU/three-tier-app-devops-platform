@@ -7,14 +7,13 @@ import { logger } from './utils/logger';
 import { config } from './config';
 
 async function start(): Promise<void> {
-  // Connect to Redis before serving traffic
-  try {
-    await redis.connect();
-  } catch (err) {
-    logger.warn('Redis unavailable on startup — continuing without cache', {
-      error: (err as Error).message,
+  // Connect to Redis without blocking server startup.
+  // ioredis will retry in the background; the app degrades gracefully without cache.
+  redis.connect().catch((err: Error) => {
+    logger.warn('Redis initial connection failed — caching disabled until Redis is available', {
+      error: err.message,
     });
-  }
+  });
 
   const app    = createApp();
   const server = http.createServer(app);

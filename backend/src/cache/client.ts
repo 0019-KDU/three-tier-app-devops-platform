@@ -7,6 +7,12 @@ export const redis = new Redis(config.redis.url, {
   enableOfflineQueue: false,   // fail fast when disconnected — caught by helpers try/catch
   lazyConnect: true,
   enableReadyCheck: true,
+  connectTimeout: 5_000,       // TCP handshake timeout in ms
+  retryStrategy(times) {
+    // Stop retrying after 10 attempts so a missing Redis doesn't spin forever
+    if (times > 10) return null;
+    return Math.min(times * 200, 3_000);
+  },
 });
 
 redis.on('connect', () => logger.info('Redis connected'));
