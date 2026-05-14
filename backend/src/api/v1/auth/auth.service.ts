@@ -9,6 +9,7 @@ import {
   verifyRefreshToken,
 } from '../../../utils/jwt';
 import { AppError } from '../../../utils/AppError';
+import { logger } from '../../../utils/logger';
 import { PublicUser } from '../../../types/domain';
 import { config } from '../../../config';
 import { RegisterInput, LoginInput } from './auth.schema';
@@ -61,6 +62,7 @@ export class AuthService {
   async register(input: RegisterInput): Promise<AuthResult> {
     const existing = await usersRepository.findByEmail(input.email);
     if (existing) {
+      logger.warn('Registration attempt with existing email', { email: input.email });
       throw AppError.conflict('Email already in use', 'EMAIL_TAKEN');
     }
 
@@ -72,40 +74,46 @@ export class AuthService {
     });
 
     const jti = uuidv4();
-    const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+    const accessToken  = signAccessToken({ sub: user.id, email: user.email, role: user.role });
     const refreshToken = signRefreshToken({ sub: user.id, jti });
 
     await saveRefreshToken(user.id, refreshToken);
 
+    logger.info('User registered', { userId: user.id, email: user.email });
     return { user: toPublicUser(user), tokens: { accessToken, refreshToken } };
   }
 
   async login(input: LoginInput): Promise<AuthResult> {
     const user = await usersRepository.findByEmail(input.email);
+
     if (!user || !user.isActive) {
+      logger.warn('Login failed: user not found or inactive', { email: input.email });
       throw AppError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
     const valid = await comparePassword(input.password, user.passwordHash);
     if (!valid) {
+      logger.warn('Login failed: wrong password', { email: input.email, userId: user.id });
       throw AppError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
     const jti = uuidv4();
-    const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+    const accessToken  = signAccessToken({ sub: user.id, email: user.email, role: user.role });
     const refreshToken = signRefreshToken({ sub: user.id, jti });
 
     await saveRefreshToken(user.id, refreshToken);
 
+    logger.info('User logged in', { userId: user.id, email: user.email });
     return { user: toPublicUser(user), tokens: { accessToken, refreshToken } };
   }
 
   async refresh(rawRefreshToken: string): Promise<TokenPair> {
     const payload = verifyRefreshToken(rawRefreshToken);
-    const userId = payload.sub;
+    const userId  = payload.sub;
 
     const stored = await findValidRefreshToken(userId, rawRefreshToken);
     if (!stored) {
+      logger.warn('Token refresh rejected: invalid or expired token', { userId });
       throw AppError.unauthorized('Refresh token is invalid or expired', 'INVALID_REFRESH_TOKEN');
     }
 
@@ -118,21 +126,25 @@ export class AuthService {
     await revokeRefreshToken(stored.tokenHash);
 
     const jti = uuidv4();
-    const accessToken = signAccessToken({ sub: user.id, email: user.email, role: user.role });
+    const accessToken    = signAccessToken({ sub: user.id, email: user.email, role: user.role });
     const newRefreshToken = signRefreshToken({ sub: user.id, jti });
 
     await saveRefreshToken(user.id, newRefreshToken);
 
+    logger.debug('Token refreshed', { userId: user.id });
     return { accessToken, refreshToken: newRefreshToken };
   }
 
   async logout(rawRefreshToken: string): Promise<void> {
     try {
       const payload = verifyRefreshToken(rawRefreshToken);
-      const stored = await findValidRefreshToken(payload.sub, rawRefreshToken);
-      if (stored) await revokeRefreshToken(stored.tokenHash);
+      const stored  = await findValidRefreshToken(payload.sub, rawRefreshToken);
+      if (stored) {
+        await revokeRefreshToken(stored.tokenHash);
+        logger.info('User logged out', { userId: payload.sub });
+      }
     } catch {
-      // Silently ignore — logout should always succeed from client perspective
+      // Silently ignore — logout must always succeed from the client's perspective
     }
   }
 }

@@ -2,6 +2,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, Navigate } from 'react-router-dom';
+import { AxiosError } from 'axios';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useLogin } from '../hooks/useAuth';
@@ -12,6 +13,13 @@ const schema = z.object({
   password: z.string().min(1, 'Password required'),
 });
 type FormData = z.infer<typeof schema>;
+
+function getApiError(error: unknown): string {
+  const axiosError = error as AxiosError<{ error?: { message?: string } }>;
+  if (!axiosError?.response) return 'Cannot reach the server. Make sure the backend is running.';
+  if (axiosError.response.status === 401) return 'Invalid email or password.';
+  return axiosError?.response?.data?.error?.message ?? 'Sign in failed. Please try again.';
+}
 
 export function LoginPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -31,17 +39,37 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit((d) => login.mutate(d))} className="space-y-4">
-          <Input label="Email" type="email" autoComplete="email" {...register('email')} error={errors.email?.message} />
-          <Input label="Password" type="password" autoComplete="current-password" {...register('password')} error={errors.password?.message} />
+          <Input
+            label="Email"
+            type="email"
+            autoComplete="email"
+            {...register('email')}
+            error={errors.email?.message}
+          />
+          <Input
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            {...register('password')}
+            error={errors.password?.message}
+          />
+
           {login.error && (
-            <p className="text-sm text-red-600">Invalid email or password.</p>
+            <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3">
+              <p className="text-sm text-red-700">{getApiError(login.error)}</p>
+            </div>
           )}
-          <Button type="submit" className="w-full" loading={login.isPending}>Sign in</Button>
+
+          <Button type="submit" className="w-full" loading={login.isPending}>
+            Sign in
+          </Button>
         </form>
 
         <p className="mt-4 text-center text-sm text-gray-500">
           No account?{' '}
-          <Link to="/register" className="font-medium text-primary-600 hover:underline">Sign up</Link>
+          <Link to="/register" className="font-medium text-primary-600 hover:underline">
+            Sign up
+          </Link>
         </p>
       </div>
     </div>

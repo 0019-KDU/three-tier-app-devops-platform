@@ -39,6 +39,10 @@ export const config = {
     credentials: true,
   },
 
+  redis: {
+    url: optional('REDIS_URL', 'redis://localhost:6379'),
+  },
+
   rateLimit: {
     windowMs: Number(optional('RATE_LIMIT_WINDOW_MS', '900000')),
     max: Number(optional('RATE_LIMIT_MAX', '100')),

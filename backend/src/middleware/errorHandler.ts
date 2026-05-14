@@ -14,65 +14,73 @@ interface ErrorResponse {
   };
 }
 
+function requestMeta(req: Request) {
+  return {
+    requestId: req.id,
+    method:    req.method,
+    path:      req.path,
+  };
+}
+
 export function errorHandler(
   err: Error,
   req: Request,
   res: Response,
   _next: NextFunction,
 ): void {
-  // Zod validation errors
+  // ── Zod validation errors ────────────────────────────────────────────────────
   if (err instanceof ZodError) {
     const fields: Record<string, string[]> = {};
     for (const issue of err.issues) {
       const key = issue.path.join('.') || 'root';
-      if (!fields[key]) fields[key] = [];
-      fields[key].push(issue.message);
+      (fields[key] ??= []).push(issue.message);
     }
-
-    const body: ErrorResponse = {
+    logger.warn('Validation failed', { ...requestMeta(req), fieldCount: err.issues.length });
+    res.status(422).json({
       success: false,
       error: { code: 'VALIDATION_ERROR', message: 'Validation failed', fields },
-    };
-    res.status(422).json(body);
+    } satisfies ErrorResponse);
     return;
   }
 
-  // Operational (expected) errors
+  // ── Operational AppErrors ────────────────────────────────────────────────────
   if (err instanceof AppError) {
+    const meta = { ...requestMeta(req), code: err.code, statusCode: err.statusCode };
+
     if (!err.isOperational) {
-      logger.error('Non-operational AppError', {
-        requestId: req.id,
-        error: err.message,
-        stack: err.stack,
-      });
+      // Non-operational = programmer error → treat as 5xx
+      logger.error('Non-operational error', { ...meta, stack: err.stack });
+    } else if (err.statusCode >= 500) {
+      logger.error(err.message, { ...meta, stack: err.stack });
+    } else if (err.statusCode >= 400) {
+      logger.warn(err.message, meta);
     }
 
-    const body: ErrorResponse = {
+    res.status(err.statusCode).json({
       success: false,
       error: {
-        code: err.code,
+        code:    err.code,
         message: err.message,
         ...(config.isDev && { stack: err.stack }),
       },
-    };
-    res.status(err.statusCode).json(body);
+    } satisfies ErrorResponse);
     return;
   }
 
-  // Unknown errors
+  // ── Unknown / unhandled errors ───────────────────────────────────────────────
   logger.error('Unhandled error', {
-    requestId: req.id,
-    error: err.message,
-    stack: err.stack,
+    ...requestMeta(req),
+    errorName:    err.name,
+    errorMessage: err.message,
+    stack:        err.stack,
   });
 
-  const body: ErrorResponse = {
+  res.status(500).json({
     success: false,
     error: {
-      code: 'INTERNAL_ERROR',
+      code:    'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
       ...(config.isDev && { stack: err.stack }),
     },
-  };
-  res.status(500).json(body);
+  } satisfies ErrorResponse);
 }

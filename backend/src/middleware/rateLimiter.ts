@@ -1,19 +1,28 @@
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
 import { config } from '../config';
+import { redis } from '../cache/client';
 
-// In-memory rate limiting (no Redis dependency).
-// For multi-instance deployments, swap MemoryStore for a shared store.
+const skipInDev = () => config.isDev;
+
+function makeRedisStore(prefix: string): RedisStore {
+  return new RedisStore({
+    sendCommand: (...args: [string, ...string[]]) => redis.call(...args) as Promise<number>,
+    prefix,
+  });
+}
 
 export const globalRateLimiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.max,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/health') || skipInDev(),
+  store: skipInDev() ? undefined : makeRedisStore('rl:global:'),
   message: {
     success: false,
     error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests, please try again later.' },
   },
-  skip: (req) => req.path.startsWith('/health'),
 });
 
 export const authRateLimiter = rateLimit({
@@ -21,6 +30,8 @@ export const authRateLimiter = rateLimit({
   max: config.rateLimit.authMax,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipInDev,
+  store: skipInDev() ? undefined : makeRedisStore('rl:auth:'),
   message: {
     success: false,
     error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many auth attempts, please try again later.' },

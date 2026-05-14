@@ -8,7 +8,7 @@ import { CreateProjectModal } from '../components/features/projects/CreateProjec
 export function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const { data, isLoading } = useProjects();
-  const deleteProject = useDeleteProject();
+  useDeleteProject();
 
   return (
     <div className="space-y-6">

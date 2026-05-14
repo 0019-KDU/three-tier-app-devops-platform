@@ -1,4 +1,6 @@
 import { pool } from '../db/pool';
+import { getCacheStats } from '../cache/helpers';
+import { checkRedisConnection } from '../cache/client';
 import { logger } from '../utils/logger';
 
 export interface ComponentHealth {
@@ -12,8 +14,10 @@ export interface HealthReport {
   version: string;
   uptimeSeconds: number;
   memoryMb: number;
+  cache: { entries: number };
   components: {
     database: ComponentHealth;
+    redis: ComponentHealth;
   };
 }
 
@@ -30,16 +34,28 @@ async function checkDatabase(): Promise<ComponentHealth> {
   }
 }
 
+async function checkRedis(): Promise<ComponentHealth> {
+  const start = Date.now();
+  const ok = await checkRedisConnection();
+  if (ok) return { status: 'up', latencyMs: Date.now() - start };
+  return { status: 'down', error: 'Redis ping failed' };
+}
+
 export async function getFullHealth(): Promise<HealthReport> {
-  const database = await checkDatabase();
+  const [database, redis] = await Promise.all([checkDatabase(), checkRedis()]);
+  const cacheStats = await getCacheStats();
   const memMb = process.memoryUsage().rss / 1024 / 1024;
 
+  const allUp = database.status === 'up' && redis.status === 'up';
+  const dbUp = database.status === 'up';
+
   return {
-    status: database.status === 'up' ? 'healthy' : 'unhealthy',
+    status: allUp ? 'healthy' : dbUp ? 'degraded' : 'unhealthy',
     version: process.env['npm_package_version'] ?? '1.0.0',
     uptimeSeconds: Math.floor(process.uptime()),
     memoryMb: Math.round(memMb),
-    components: { database },
+    cache: cacheStats,
+    components: { database, redis },
   };
 }
 

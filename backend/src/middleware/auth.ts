@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
 import { AppError } from '../utils/AppError';
+import { setLogContextUser } from '../utils/logContext';
 
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
@@ -13,6 +14,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   const token = authHeader.slice(7);
   try {
     req.user = verifyAccessToken(token);
+    setLogContextUser(req.user.sub); // propagate to all downstream log calls
     next();
   } catch (err) {
     next(err);

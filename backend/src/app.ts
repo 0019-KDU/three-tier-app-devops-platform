@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { config } from './config';
 import { requestId } from './middleware/requestId';
+import { logContext } from './middleware/logContext';
 import { requestLogger } from './middleware/requestLogger';
 import { errorHandler } from './middleware/errorHandler';
 import { globalRateLimiter } from './middleware/rateLimiter';
@@ -17,9 +18,9 @@ export function createApp(): express.Application {
   app.use(helmet());
   app.use(
     cors({
-      origin: config.cors.origin,
-      credentials: config.cors.credentials,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      origin:         config.cors.origin,
+      credentials:    config.cors.credentials,
+      methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
     }),
   );
@@ -29,7 +30,9 @@ export function createApp(): express.Application {
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // ── Request tracking ──────────────────────────────────────────────────────
+  // requestId must come first so logContext can read req.id
   app.use(requestId);
+  app.use(logContext);       // starts AsyncLocalStorage scope for the whole request
   app.use(requestLogger);
 
   // ── Rate limiting (global) ────────────────────────────────────────────────
